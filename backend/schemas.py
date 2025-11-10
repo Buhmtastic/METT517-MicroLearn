@@ -17,7 +17,7 @@ class Source(SourceBase):
     note_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # --- Learning Note Models ---
@@ -35,7 +35,7 @@ class LearningNote(LearningNoteBase):
     # material: Optional['LearningMaterial'] = None # 순환 참조 방지를 위해 주석 처리 또는 ForwardRef 사용
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # --- MicroLearn Core Models ---
@@ -66,20 +66,20 @@ class QuizItem(QuizItemBase):
     id: int
     material_id: int
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class FlashcardItem(FlashcardItemBase):
     id: int
     material_id: int
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class KeyTopic(BaseModel):
     id: int
     topic: str
     material_id: int
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class LearningMaterial(BaseModel):
     id: int
@@ -91,10 +91,10 @@ class LearningMaterial(BaseModel):
     mindmap: Optional[Any] = None
     audio_url: Optional[str] = None
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # 순환 참조 해결
-LearningNote.update_forward_refs(LearningMaterial=LearningMaterial)
+LearningNote.model_rebuild()
 
 
 # --- Auth Models ---
@@ -121,4 +121,4 @@ class User(UserBase):
     notes: List[LearningNote] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True

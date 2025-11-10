@@ -51,8 +51,11 @@ urllib3==2.5.0
 uvicorn==0.37.0
 langchain
 langchain-google-genai
+langchain-community
 chromadb
 tiktoken
 trafilatura
 youtube-transcript-api
 openai
+pypdf
+python-multipart

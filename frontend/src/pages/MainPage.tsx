@@ -88,9 +88,14 @@ function MainPage() {
     handleGenerate('/api/generate-materials-from-youtube', { url: urlInput });
   };
 
-  const getTabStyle = (tabName: string) => ({
-    all: 'unset', padding: '0.5rem 1rem', cursor: 'pointer', 
-    borderBottom: activeTab === tabName ? '2px solid #61dafb' : '2px solid transparent', color: 'white'
+  const getTabStyle = (tabName: string): React.CSSProperties => ({
+    background: 'none',
+    border: 'none',
+    font: 'inherit',
+    padding: '0.5rem 1rem', 
+    cursor: 'pointer', 
+    borderBottom: activeTab === tabName ? '2px solid #61dafb' : '2px solid transparent', 
+    color: 'white'
   });
 
   const renderContent = () => {

@@ -98,7 +98,7 @@ function LearningNoteDetailPage() {
       </div>
 
       <div style={{ flex: 1, padding: '2rem', borderLeft: '1px solid #444', height: '100vh' }}>
-        <ChatInterface noteId={note.id} />
+        <ChatInterface materialId={note.id} />
       </div>
     </div>
   );

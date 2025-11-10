@@ -23,8 +23,8 @@ import re
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from . import auth, crud, models, schemas, rag_handler, tts_handler
-from .database import SessionLocal, engine
+from backend import auth, crud, models, schemas, rag_handler, tts_handler
+from backend.database import SessionLocal, engine
 
 load_dotenv() # .env 파일에서 환경 변수 로드
 
