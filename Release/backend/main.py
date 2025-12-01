@@ -1,8 +1,10 @@
 from fastapi import Depends, FastAPI, HTTPException, File, UploadFile, status, Form
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta
 import os
+
 import json
 from typing import List, Optional
 from dotenv import load_dotenv
@@ -478,6 +480,126 @@ async def generate_materials_legacy(
     crud.create_note_source(db=db, source=source_create, note_id=db_note.id)
 
     return await _generate_ai_materials(text=source_text.text, db=db, note_id=db_note.id, source_path='text_input')
+
+
+@app.post("/api/generate-materials-from-file", response_model=schemas.LearningMaterial)
+async def generate_materials_from_file_legacy(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    """Legacy endpoint for file upload compatibility."""
+    # 1. Create a temporary note
+    temp_note = schemas.LearningNoteCreate(title=f"File Upload: {file.filename}")
+    db_note = crud.create_learning_note(db=db, note=temp_note, user_id=current_user.id)
+
+    # 2. Extract text from file
+    filename = file.filename
+    if not (filename.endswith(".txt") or filename.endswith(".pdf") or filename.endswith(".docx")):
+        raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다. .txt, .pdf, .docx 파일만 업로드할 수 있습니다.")
+
+    extracted_text = ""
+    try:
+        contents = await file.read()
+        if filename.endswith(".txt"): 
+            extracted_text = contents.decode("utf-8")
+        elif filename.endswith(".pdf"):
+            with io.BytesIO(contents) as f:
+                reader = PdfReader(f)
+                for page in reader.pages: 
+                    extracted_text += page.extract_text() or ""
+        elif filename.endswith(".docx"):
+            with io.BytesIO(contents) as f:
+                doc = docx.Document(f)
+                for para in doc.paragraphs: 
+                    extracted_text += para.text + "\n"
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"파일 처리 중 오류가 발생했습니다: {str(e)}")
+
+    if not extracted_text.strip():
+        raise HTTPException(status_code=400, detail="파일에서 텍스트를 추출할 수 없습니다.")
+
+    # 3. Save source info
+    source_create = schemas.SourceCreate(type='file', path=filename, content=extracted_text[:500])
+    crud.create_note_source(db=db, source=source_create, note_id=db_note.id)
+
+    # 4. Generate materials
+    return await _generate_ai_materials(text=extracted_text, db=db, note_id=db_note.id, source_path=filename)
+
+
+@app.post("/api/generate-materials-from-url", response_model=schemas.LearningMaterial)
+async def generate_materials_from_url_legacy(
+    source: UrlSource,
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    """Legacy endpoint for URL processing compatibility."""
+    # 1. Create a temporary note
+    temp_note = schemas.LearningNoteCreate(title=f"URL Source: {source.url}")
+    db_note = crud.create_learning_note(db=db, note=temp_note, user_id=current_user.id)
+
+    # 2. Extract text from URL
+    try:
+        downloaded = trafilatura.fetch_url(source.url)
+        if downloaded is None:
+            raise HTTPException(status_code=400, detail="URL에서 콘텐츠를 가져올 수 없습니다.")
+        
+        extracted_text = trafilatura.extract(downloaded)
+        if not extracted_text or not extracted_text.strip():
+            raise HTTPException(status_code=400, detail="URL에서 텍스트를 추출할 수 없습니다.")
+
+        # 3. Save source info
+        source_create = schemas.SourceCreate(type='url', path=source.url, content=extracted_text[:500])
+        crud.create_note_source(db=db, source=source_create, note_id=db_note.id)
+
+        # 4. Generate materials
+        return await _generate_ai_materials(text=extracted_text, db=db, note_id=db_note.id, source_path=source.url)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"URL 처리 중 오류가 발생했습니다: {str(e)}")
+
+
+def get_transcript_sync(video_id: str):
+    """Synchronous wrapper for the YouTube Transcript API call."""
+    return YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
+
+@app.post("/api/generate-materials-from-youtube", response_model=schemas.LearningMaterial)
+async def generate_materials_from_youtube_legacy(
+    source: UrlSource,
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    """Legacy endpoint for YouTube processing compatibility."""
+    # 1. Create a temporary note
+    temp_note = schemas.LearningNoteCreate(title=f"YouTube Source: {source.url}")
+    db_note = crud.create_learning_note(db=db, note=temp_note, user_id=current_user.id)
+
+    # 2. Extract transcript from YouTube URL
+    try:
+        video_id = get_youtube_video_id(source.url)
+        if not video_id:
+            raise HTTPException(status_code=400, detail="유효하지 않은 YouTube URL입니다.")
+
+        # Run the blocking transcript call in a separate thread
+        transcript_list = await run_in_threadpool(get_transcript_sync, video_id)
+        
+        extracted_text = " ".join([item['text'] for item in transcript_list])
+        if not extracted_text.strip():
+            raise HTTPException(status_code=400, detail="자막을 추출할 수 없습니다.")
+
+        # 3. Save source info
+        source_create = schemas.SourceCreate(type='youtube', path=source.url, content=extracted_text[:500])
+        crud.create_note_source(db=db, source=source_create, note_id=db_note.id)
+
+        # 4. Generate materials
+        return await _generate_ai_materials(text=extracted_text, db=db, note_id=db_note.id, source_path=source.url)
+
+    except NoTranscriptFound:
+        raise HTTPException(status_code=404, detail="해당 영상에 분석 가능한 한국어 또는 영어 자막이 존재하지 않습니다.")
+    except Exception as e:
+        # Log the actual error to the server console for debugging
+        print(f"An unexpected error occurred in YouTube processing: {e}")
+        raise HTTPException(status_code=500, detail=f"YouTube 처리 중 예기치 않은 오류가 발생했습니다: {str(e)}")
 
 
 @app.get("/users/", response_model=list[schemas.User])

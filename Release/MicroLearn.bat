@@ -24,8 +24,7 @@ if not exist "frontend\build\index.html" (
 )
 
 echo [1/2] Activating virtual environment...
-cd backend
-call venv\Scripts\activate.bat
+call backend\venv\Scripts\activate.bat
 
 echo [2/2] Starting MicroLearn AI server...
 echo.
@@ -41,11 +40,10 @@ REM Wait 3 seconds and open browser
 timeout /t 3 /nobreak > nul
 start http://localhost:8000
 
-REM Start the server (using port 8000)
-python -m uvicorn main:app --host 0.0.0.0 --port 8000
+REM Start the server (using port 8000) from the Release directory
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
 REM After server stops
-cd ..
 echo.
 echo MicroLearn AI has been stopped.
 pause
