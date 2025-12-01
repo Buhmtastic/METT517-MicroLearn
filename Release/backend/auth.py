@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import os
+from dotenv import load_dotenv
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -10,6 +11,9 @@ from passlib.context import CryptContext
 
 from . import crud, models, schemas
 from .database import SessionLocal
+
+# Load environment variables
+load_dotenv()
 
 # --- 설정 ---
 SECRET_KEY = os.getenv("SECRET_KEY")

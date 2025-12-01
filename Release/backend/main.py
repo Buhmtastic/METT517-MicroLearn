@@ -32,19 +32,11 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-# 정적 파일(오디오 등) 제공을 위한 설정
-app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
-
-# 프론트엔드 빌드 파일 서빙 설정
-frontend_build_path = Path(__file__).parent.parent / "frontend" / "build"
-if frontend_build_path.exists():
-    # 빌드된 프론트엔드 정적 파일 제공
-    app.mount("/assets", StaticFiles(directory=frontend_build_path / "assets"), name="assets")
-
-# CORS 미들웨어 추가
+# CORS 미들웨어 추가 (Static files보다 먼저!)
 origins = [
     "http://localhost:3000",  # React 개발 서버
     "http://localhost:8000",  # 프로덕션 (백엔드에서 프론트엔드 서빙)
+    "http://127.0.0.1:8000",  # 127.0.0.1도 허용
 ]
 
 app.add_middleware(
@@ -54,6 +46,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 프론트엔드 빌드 파일 서빙 설정 (먼저 마운트 - 우선순위)
+frontend_build_path = Path(__file__).parent.parent / "frontend" / "build"
+frontend_static_path = frontend_build_path / "static"
+if frontend_static_path.exists():
+    # 빌드된 프론트엔드 정적 파일 제공 (React build의 /static 경로)
+    app.mount("/static", StaticFiles(directory=frontend_static_path), name="frontend_static")
+
+# 백엔드 정적 파일(TTS 오디오 등) 제공
+app.mount("/api-static", StaticFiles(directory=Path(__file__).parent / "static"), name="backend_static")
 
 # Dependency
 def get_db():
@@ -246,7 +248,7 @@ async def _generate_ai_materials(text: str, db: Session, note_id: int, source_pa
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
 
         prompt = f"""다음 텍스트를 분석하여 마이크로러닝 학습 자료를 생성해줘. 반드시 아래의 JSON 형식과 동일한 구조로 응답해야 해. 각 필드에 대한 설명은 다음과 같아.
 
@@ -310,7 +312,16 @@ async def _generate_ai_materials(text: str, db: Session, note_id: int, source_pa
                 response_json["mindmap"] = json.loads(response_json["mindmap"])
             except json.JSONDecodeError:
                 response_json["mindmap"] = None
-        
+
+        # Handle stringified quiz options
+        if "quiz" in response_json and isinstance(response_json["quiz"], list):
+            for quiz_item in response_json["quiz"]:
+                if isinstance(quiz_item.get("options"), str):
+                    try:
+                        quiz_item["options"] = json.loads(quiz_item["options"])
+                    except json.JSONDecodeError:
+                        quiz_item["options"] = []
+
         validated_material = schemas.LearningMaterialCreate(**response_json)
 
         audio_url = None
@@ -448,6 +459,25 @@ async def generate_materials_from_youtube(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"YouTube 처리 중 오류 발생: {str(e)}")
 
+
+
+# --- Legacy/Compatibility Endpoint ---
+@app.post("/api/generate-materials", response_model=schemas.LearningMaterial)
+async def generate_materials_legacy(
+    source_text: schemas.SourceText,
+    db: Session = Depends(get_db),
+    current_user: schemas.User = Depends(auth.get_current_user)
+):
+    """Legacy endpoint for backward compatibility. Creates a temporary note and generates materials."""
+    # Create a temporary note for this content
+    temp_note = schemas.LearningNoteCreate(title="Quick Learning Material")
+    db_note = crud.create_learning_note(db=db, note=temp_note, user_id=current_user.id)
+
+    # Generate materials
+    source_create = schemas.SourceCreate(type='text', path='text_input', content=source_text.text[:500])
+    crud.create_note_source(db=db, source=source_create, note_id=db_note.id)
+
+    return await _generate_ai_materials(text=source_text.text, db=db, note_id=db_note.id, source_path='text_input')
 
 
 @app.get("/users/", response_model=list[schemas.User])

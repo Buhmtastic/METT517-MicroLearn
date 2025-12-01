@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, field_serializer, model_serializer
 from typing import Optional, List, Any
+import json
 
 
 # --- Source Models ---
@@ -65,6 +66,17 @@ class SourceText(BaseModel):
 class QuizItem(QuizItemBase):
     id: int
     material_id: int
+
+    @field_validator('options', mode='before')
+    @classmethod
+    def parse_options(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return []
+        return v
+
     class Config:
         from_attributes = True
 
@@ -90,6 +102,19 @@ class LearningMaterial(BaseModel):
     flashcards: List[FlashcardItem] = []
     mindmap: Optional[Any] = None
     audio_url: Optional[str] = None
+
+    @field_serializer('key_topics')
+    def serialize_key_topics(self, key_topics: List[KeyTopic], _info):
+        return [topic.topic for topic in key_topics]
+
+    @model_serializer(mode='wrap')
+    def serialize_model(self, serializer):
+        data = serializer(self)
+        # Rename quiz_items to quiz for frontend compatibility
+        if 'quiz_items' in data:
+            data['quiz'] = data.pop('quiz_items')
+        return data
+
     class Config:
         from_attributes = True
 
